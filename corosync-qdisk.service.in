@@ -1,0 +1,22 @@
+[Unit]
+Description=Qdisk Service
+ConditionKernelCommandLine=!nocluster
+BindsTo=corosync.service
+After=corosync.service iscsi.service
+StartLimitIntervalSec=30
+StartLimitBurst=30
+
+[Service]
+EnvironmentFile=-@INITCONFIGDIR@/corosync-qdisk
+ExecStart=@SBINDIR@/corosync-qdisk $COROSYNC_QDISK_OPTIONS
+User=root
+RuntimeDirectory=corosync-qdisk
+RuntimeDirectoryMode=0770
+StandardOutput=journal
+StandardError=journal
+
+Type=notify
+Restart=on-abnormal
+
+[Install]
+WantedBy=corosync.service
