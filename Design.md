@@ -69,16 +69,16 @@ each full cluster host along side corosync similar to how `corosync-qdevice`
 works today.
 
 During startup `corosync-qdisk` initializes communication with corosync, and registers
-a SCSI/NVMe key with the configured disk. The disk is specified using a WWN or serial
-number of the disk in the `corosync.conf`.
+a SCSI/NVMe key with the configured disk. The disk is specified using a WWN
+in the `corosync.conf`.
 
 During a tiebreaker scenario where exactly half of the cluster nodes are availble within
 the local partition, the daemon on each host races to reserve the disk using
-sg_persist or nvme depending on the disk type. The host which succeeds to reserving
-the disk will grant its partition an extra vote allowing it to remain quorate.
+sg_persist or nvme depending on the disk type. The partition which fails in reserving
+the disk will rescind the QDisk vote causing the partition to lose quorum.
 
 Once the network partition is resolved, the daemon with the reservation will
-release it and additional vote will also be removed. If instead another host is
+release it and additional vote will also be restored. If instead another host is
 lost, again the reservation will be released and the remaining hosts will lose
 quorum.
 
@@ -234,19 +234,33 @@ disk to provide tiebreaker capabilities to a Corosync cluster.
     that is configured as a hard failure in the unit file.
 - Communicates changes in disk state to the Corosync votequorum service engine.
 - Disk and registration key are configured within the quorum section of the `corosync.conf`.
-- Provides an extra vote to which ever partition that has exactly half the cluster
-  nodes, and successfully reserves the disk.
-- Once the partition no longer has half the nodes (+1 or -1), the disk reservation
-  is released and the `corosync-qdisk` returns to it's idle state.
+- Provides an extra vote similar to QDevice hosts during normal operations, and
+  rescinds that extra vote on which ever partition fails to reserve the disk
+  during a split-brain.
+- If a partition which successfully reserved the disk loses an additional host, resulting
+  in less than half the cluster being available in the current partition, the QDisk
+  service will enter the 'RESIGNED' state and release its reservation. The remaining
+  host will lose quorum, and the cluster will suffer a total outage. The corosync-qdisk
+  server will not leave RESIGNED state and not provide tiebreaking until quorum
+  is restored (half + 1).
+- If a partition which successfully reserved the disk gains an additional host,
+  resulting in more than half the cluster being available in the current partition,
+  the Qdisk service will return to the IDLE state after releasing the reservation
+  and continue to provide tiebreaking functionality.
+- If a partition which had previously lost quorum rejoins the quorate partition,
+  the QDisk will return to IDLE state.
+- If a host that has just booted up is not in a quorate partition, it remain in
+  the 'START' state and provide no sevice until after it has joined a quorate
+  partition.
 
 ### Votequorum and `corosync-qdisk`
 
 Similar to `corosync-qdevice`, `corosync-qdisk` sends a message to
 inform votequorum of it's status while it is in a state that should assert a vote.
-`corosync-qdisk` continuously asserts this vote to Corosync and once it stops,
-the vote will expire after the votequorum timeout which defaults to 10 seconds.
-The votequorum service engine uses the same voting logic for both `corosync-qdevice`
-and `corosync-qdisk`.
+`corosync-qdisk` continuously asserts this vote to Corosync and will explicitly
+stop asserting the vote when it is in the loosing partition, or the partition has too
+few hosts to be quorate even with the extra vote. The votequorum service engine uses
+the same voting logic for both `corosync-qdevice` and `corosync-qdisk`.
 
 ### Configuration
 
@@ -281,6 +295,46 @@ quorum {
 }
 ```
 
+#### Configuration considerations
+
+##### heartbeat (Optional)
+
+Within the Corosync votequorum engine, there is a votequorum timeout controlling when
+a quorum device's vote times outs and get rescinded.
+This timeout is configureable in the corosync.conf as `quorum.device.timeout`,
+and defaults to 10 seconds.
+
+Therefore, the heartbeat interval for `corosync-qdisk` must be less than that
+votequorum qdevice timeout to avoid spurious loss of quorum during tiebreaker scenarios.
+
+The heartbeat is configurable in corosync.conf, but defaults to half the
+corosync token timeout.
+
+##### timeout (Optional)
+
+The timeout parameter configures the minimum time `corosync-qdisk` should wait
+before falling back to the `IDLE` state after attempting to reserve the disk, or
+receiving a vote. See the following section on the algorithm for more details.
+This timeout must be greater than the votequorum qdevice timeout in order to avoid
+changing `corosync-qdisk` states in situations where Corosync may experience delays
+reporting cluster state across the cluster.
+
+##### device
+
+A path to a Linux device node. Can be normal
+`/dev/sdx` or from `/dev/disk/by-id/` or anything else as long as it's a
+SCSI3-PR or NVMe disk device node file. Can also be of the form `wwn:<WWN>`
+for SCSI devices or `nvme:<Manufacturer>_<Serial Number>_1` for NVMe devices
+where the manufacturer string has spaces replaced with `_`. The `_1` on the end
+forces reference to the disk, not the controller.
+
+##### keyfile
+
+If `corosync-qdisk` starts with the keyfile empty it will set the key to a 64
+bit value obtained by a non-cryptographic hash of the hostname and will save it
+to the file. The key created by `corosync-qdisk` will have an eye catcher ('c070')
+in the first two bytes to indicate these keys belong to it.
+
 ### `corosync-qdisk` Algorithm
 
 #### Start up
@@ -307,11 +361,9 @@ quorum {
     - Validate keys of visible nodes against the keys on disk, abort if
       votequorum lists a key that does not exist on disk. This indicates a
       misconfiguration.
-    - If corosync quorum service engine indicates "quorate" change state to `IDLE`
+    - If corosync votequorum service engine indicates "quorate" change state to `IDLE`
   - **`IDLE`** state: Main state during normal operation, casts a vote.
     - set "timeout" time to a point in the future (configurable)
-    - If the disk is reserved and we can still see the node holding the reservation
-      change state to `RECV_VOTE`.
     - if number of nodes visible needs 1 more to maintain quorum change state to
       `RESERVE_DISK`
     - if the disk shows a reservation and we can see the node holding it via
@@ -337,41 +389,14 @@ quorum {
   - **`HAVE_QDISK`** state: `corosync-qdisk` on the local host has successfully
     reserved the shared disk. Casts vote
     - if a tiebreak is no longer needed, change to state `RELEASE_QDISK`
-    - if we still have the reservation, remain in `HAVE_QDISK` state
-    - remain in `HAVE_QDISK` state, but do not cast vote
+    - if we still have the reservation and tiebreak is needed, remain in `HAVE_QDISK` state
   - **`RELEASE_QDISK`** state: No longer in a tiebreaker scenario, need to release
     the reservation.
     - release the reservation and transition to `IDLE` state if successful,
       otherwise remain in `RELEASE_QDISK` state
-
-::: mermaid
----
-config:
-  layout: elk
----
-stateDiagram-v2
-    START
-    IDLE
-    RESERVE_DISK
-    RECV_VOTE
-    HAVE_QDISK
-    RELEASE_QDISK
-    RESIGNED
-    [*] --> START
-    START --> IDLE: quorate
-    IDLE --> RECV_VOTE: need tiebreak and reservation visible
-    IDLE --> RESERVE_DISK: need tiebreak and disk not reserved
-    IDLE --> RESIGNED: partition too small for quorum or (need tiebreak and timeout passed)
-    IDLE --> IDLE: reset timeout
-    RESERVE_DISK --> HAVE_QDISK: got reservation
-    RESERVE_DISK --> RECV_VOTE: reservation visible
-    RESERVE_DISK --> RESIGNED: timeout passed
-    RECV_VOTE --> RECV_VOTE: if can see reservation holder, reset timeout
-    RECV_VOTE --> IDLE: timeout passed
-    HAVE_QDISK --> RELEASE_QDISK: tiebreak not needed
-    RELEASE_QDISK --> IDLE: released reservation
-    RESIGNED --> IDLE: quorate
-:::
+  - **`RESIGNED`** state: Every host in this partition failed to acquire the disk
+    reservation, or otherwise cannot become quorate. Does not cast a vote.
+    - If host rejoins quorate partition, return to IDLE state.
 
 ### Shutdown
 
