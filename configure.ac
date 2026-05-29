@@ -2,15 +2,9 @@
 # Process this file with autoconf to produce a configure script.
 
 # bootstrap / init
-AC_PREREQ([2.70])
+AC_PREREQ([2.71])
 
-# AC_INIT([corosync-quorumdisk],
-# 	[m4_esyscmd([build-aux/git-version-gen .tarball-version .gitarchivever])],
-# 	[users@clusterlabs.org])
-
-AC_INIT([corosync-qdisk],
-        [1.0],
-        [users@clusterlabs.org])
+AC_INIT([corosync-qdisk],[1.0],[users@clusterlabs.org])
 
 AC_USE_SYSTEM_EXTENSIONS
 
@@ -21,7 +15,7 @@ LT_INIT
 
 AM_SILENT_RULES([yes])
 
-AC_CONFIG_SRCDIR([engine/main.c])
+AC_CONFIG_SRCDIR([qdiskd/main.c])
 AC_CONFIG_HEADERS([config.h])
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -75,10 +69,10 @@ AC_PROG_GREP
 AC_PROG_SED
 AC_PROG_CPP
 AC_PROG_CC
-AC_PROG_CC_C99
-if test "x$ac_cv_prog_cc_c99" = "xno"; then
-	AC_MSG_ERROR(["C99 support is required"])
-fi
+# AC_REQUIRE(AC_PROG_CC)
+# if test "x$ac_cv_prog_cc_c99" = "xno"; then
+# 	AC_MSG_ERROR(["C99 support is required"])
+# fi
 AC_PROG_LN_S
 AC_PROG_INSTALL
 AC_PROG_MAKE_SET
