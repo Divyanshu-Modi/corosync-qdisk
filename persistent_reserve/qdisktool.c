@@ -109,16 +109,18 @@ int main(int argc, const char *argv[])
 		return 1;
 	}
 
+    pr_dev_err err = PR_ERR_OK;
+
 	if(strcmp(argv[1], "register") == 0) {
-		persistent_reserve_device_register_key(handle);
+		err = persistent_reserve_device_register_key(handle);
 	} else if(strcmp(argv[1], "unregister") == 0) {
-		persistent_reserve_device_unregister_key(handle);
+		err = persistent_reserve_device_unregister_key(handle);
 	} else if(strcmp(argv[1], "reserve") == 0) {
-		persistent_reserve_device_reserve(handle);
+		err = persistent_reserve_device_reserve(handle);
 	} else if(strcmp(argv[1], "release") == 0) {
-		persistent_reserve_device_release(handle);
+		err = persistent_reserve_device_release(handle);
 	} else if(strcmp(argv[1], "abort") == 0) {
-		persistent_reserve_device_abort(handle);
+		err = persistent_reserve_device_abort(handle);
 	} else if(strcmp(argv[1], "status") == 0) {
 		uint64_t res_holder_key = 0;
 		int is_reserved = persistent_reserve_device_is_reserved(handle);
@@ -144,9 +146,14 @@ int main(int argc, const char *argv[])
 	} else {
 		fprintf(stderr, "Invalid action: '%s'\n\n", argv[1]);
 		print_usage(stderr, argv[0]);
-		return 1;
+		return EXIT_FAILURE;
 	}
-	return 0;
+
+    if(err != PR_ERR_OK) {
+        fprintf(stderr, "%s\n", pr_strerr(err));
+        return EXIT_FAILURE;
+    }
+	return EXIT_SUCCESS;
 }
 
 // wwn:6001405ce5b94d3feb649d2ab4952d02

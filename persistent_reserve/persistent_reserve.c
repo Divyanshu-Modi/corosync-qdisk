@@ -12,6 +12,67 @@
 #include "helpers.h"
 #include "persistent_reserve.h"
 
+const char *pr_strerr(pr_dev_err err)
+{
+    const char *res = "";
+    switch(err) {
+    case PR_ERR_OK:
+        res = "No error";
+        break;
+	case PR_ERR_DEVICE_LEN_EXCEEDED:
+        res = "Device name length exceeded";
+        break;
+	case PR_ERR_DEVICE_INVALID_DEVICE_TYPE:
+        res = "Invalid Device";
+        break;
+	case PR_ERR_DEVICE_MEMORY_ALLOCATION_FAILED:
+        res = "Memory allocation failed";
+        break;
+	case PR_ERR_DEVICE_CANT_READ_KEYFILE:
+        res = "Failed to read registration key from file";
+        break;
+	case PR_ERR_DEVICE_NOT_READY:
+        res = "Device not ready";
+        break;
+	case PR_ERR_DEVICE_NOT_OPERABLE:
+        res = "Device not operable";
+        break;
+	case PR_ERR_DEVICE_NOT_RESERVED:
+        res = "Device not reserved";
+        break;
+	case PR_ERR_REGISTRATION_FAILED:
+        res = "Key registraction action failed";
+        break;
+	case PR_ERR_RESERVATION_FAILED:
+        res = "Reservation action failed";
+        break;
+	case PR_ERR_UNREGISTER_FAILED:
+        res = "Key unregister action failed";
+        break;
+	case PR_ERR_RELEASE_FAILED:
+        res = "Release action failed";
+        break;
+	case PR_ERR_ABORT_FAILED:
+        res = "Abort action failed";
+        break;
+	case PR_ERR_FOUND_UNREGISTERED_NODE_KEY:
+        res = "Found unexpected unregistered node key";
+        break;
+	case PR_ERR_EXEC_FAILED:
+        res = "Exec failed";
+        break;
+	case PR_ERR_PARSE_DATA_ERR:
+        res = "Data parsing error";
+        break;
+
+    default:
+    case PR_ERR_UNKNOWN:
+        res = "Unknown Error";
+        break;
+    }
+    return res;
+}
+
 int exec_cmd(const char *cmd)
 {
 	FILE *pipe = popen(cmd, "r");

@@ -44,6 +44,8 @@ extern "C" {
 
 void pr_log(int level, const char *fmt, ...) __attribute__((format(printf,2,3)));
 
+const char *pr_strerr(pr_dev_err err);
+
 #ifdef __cplusplus
 }
 #endif
